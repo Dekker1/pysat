@@ -33,6 +33,7 @@ static char itot_ext_docstring[] = "Extends the set of inputs in an iterative"
 				   " totalizer object.";
 static char itot_mrg_docstring[] = "Merge two totalizer objects into one.";
 static char itot_del_docstring[] = "Delete an iterative totalizer object";
+static char itot_nodes_docstring[] = "List the nodes of a totalizer objects bottom up";
 
 static PyObject *CardError;
 static jmp_buf env;
@@ -47,18 +48,20 @@ extern "C" {
 	static PyObject *py_itot_ext       (PyObject *, PyObject *);
 	static PyObject *py_itot_mrg       (PyObject *, PyObject *);
 	static PyObject *py_itot_del       (PyObject *, PyObject *);
+	static PyObject *py_itot_nodes     (PyObject *, PyObject *);
 }
 
 // module specification
 //=============================================================================
 static PyMethodDef module_methods[] = {
-	{ "encode_atmost",  py_encode_atmost,  METH_VARARGS,   atmost_docstring },
-	{ "encode_atleast", py_encode_atleast, METH_VARARGS,  atleast_docstring },
-	{ "itot_new",       py_itot_new,       METH_VARARGS, itot_new_docstring },
-	{ "itot_inc",       py_itot_inc,       METH_VARARGS, itot_inc_docstring },
-	{ "itot_ext",       py_itot_ext,       METH_VARARGS, itot_ext_docstring },
-	{ "itot_mrg",       py_itot_mrg,       METH_VARARGS, itot_mrg_docstring },
-	{ "itot_del",       py_itot_del,       METH_VARARGS, itot_del_docstring },
+	{ "encode_atmost",  py_encode_atmost,  METH_VARARGS,   atmost_docstring   },
+	{ "encode_atleast", py_encode_atleast, METH_VARARGS,  atleast_docstring   },
+	{ "itot_new",       py_itot_new,       METH_VARARGS, itot_new_docstring   },
+	{ "itot_inc",       py_itot_inc,       METH_VARARGS, itot_inc_docstring   },
+	{ "itot_ext",       py_itot_ext,       METH_VARARGS, itot_ext_docstring   },
+	{ "itot_mrg",       py_itot_mrg,       METH_VARARGS, itot_mrg_docstring   },
+	{ "itot_del",       py_itot_del,       METH_VARARGS, itot_del_docstring   },
+	{ "itot_nodes",     py_itot_nodes,     METH_VARARGS, itot_nodes_docstring },
 
 	{ NULL, NULL, 0, NULL }
 };
@@ -622,5 +625,61 @@ static PyObject *py_itot_del(PyObject *self, PyObject *args)
 	PyObject *ret = Py_BuildValue("");
 	return ret;
 }
+
+
+//
+//=============================================================================
+void py_itot_nodes_rec(TotTree *tree, PyObject *list, size_t &i)
+{
+  if (tree->left )
+    py_itot_nodes_rec(tree->left, list, i);
+  if (tree->right)
+    py_itot_nodes_rec(tree->right, list, i);
+
+  PyObject *rhs = PyList_New(tree->vars.size());
+  for (size_t i = 0; i < tree->vars.size(); ++i) {
+    PyObject *var = pyint_from_cint(tree->vars[i]);
+    PyList_SetItem(rhs, i, var);
+  }
+  PyObject *tup = Py_BuildValue("OO", void_to_pyobj((void *) tree), rhs);
+  Py_DECREF(rhs);
+  PyList_SetItem(list, i, tup);
+  i++;
+}
+
+static PyObject *py_itot_nodes(PyObject *self, PyObject *args)
+{
+  PyObject *t_obj;
+  int main_thread;
+
+  if (!PyArg_ParseTuple(args, "Oi", &t_obj, &main_thread))
+    return NULL;
+
+  // get pointer to tree
+  TotTree *tree = (TotTree *)pyobj_to_void(t_obj);
+
+  PyOS_sighandler_t sig_save;
+  if (main_thread) {
+    sig_save = PyOS_setsig(SIGINT, sigint_handler);
+
+    if (setjmp(env) != 0) {
+      PyErr_SetString(CardError, "Caught keyboard interrupt");
+      return NULL;
+    }
+  }
+
+  // count the number of nodes
+  unsigned count = itot_node_count(tree);
+  // recursively walk tree to collect nodes
+  PyObject *nodes = PyList_New(count);
+  size_t i = 0;
+  py_itot_nodes_rec(tree, nodes, i);
+
+  if (main_thread)
+    PyOS_setsig(SIGINT, sig_save);
+
+  return nodes;
+}
+
 
 }  // extern "C"

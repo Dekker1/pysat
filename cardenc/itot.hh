@@ -202,4 +202,17 @@ static void itot_destroy(TotTree *tree)
 	delete tree;
 }
 
+
+// recursively count the number of nodes
+//=============================================================================
+static unsigned itot_node_count(TotTree *tree)
+{
+  unsigned count = 1;
+  if (tree->left )
+    count += itot_node_count(tree->left );
+  if (tree->right)
+    count += itot_node_count(tree->right);
+  return count;
+}
+
 #endif // ITOT_HH_

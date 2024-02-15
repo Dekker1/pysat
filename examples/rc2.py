@@ -196,7 +196,7 @@ class RC2(object):
         :type verbose: int
     """
 
-    def __init__(self, formula, solver='g3', adapt=False, exhaust=False,
+    def __init__(self, formula, solver='g3', adapt=False, exhaust=False, exhaust_bottom_up=False,
             incr=False, minz=False, trim=0, verbose=0):
         """
             Constructor.
@@ -205,6 +205,7 @@ class RC2(object):
         # saving verbosity level and other options
         self.verbose = verbose
         self.exhaust = exhaust
+        self.exhaust_bottom_up = exhaust_bottom_up
         self.solver = solver
         self.adapt = adapt
         self.minz = minz
@@ -666,18 +667,27 @@ class RC2(object):
                 # create a new cardunality constraint
                 t = self.create_sum()
 
-                # apply core exhaustion if required
-                b = self.exhaust_core(t) if self.exhaust else 1
+                ts = t.nodes_bottom_up() if self.exhaust_bottom_up else [t]
 
-                if b:
-                    # save the info about this sum and
-                    # add its assumption literal
-                    self.set_bound(t, b, self.minw)
-                else:
-                    # impossible to satisfy any of these clauses
-                    # they must become hard
-                    for relv in self.rels:
-                        self.oracle.add_clause([relv])
+                for i in range(len(ts)):
+                    t = ts[i]
+                    if len(t.rhs) <= 1:
+                        # TODO: special handling for leaf nodes?
+                        continue
+                    # apply core exhaustion if required
+                    b = self.exhaust_core(t) if self.exhaust else 1
+
+                    if b:
+                        # save the info about this sum and
+                        # add its assumption literal
+                        self.set_bound(t, b, self.minw)
+                    else:
+                        # TODO: Does not work with bottom up approach
+                        assert False
+                        # impossible to satisfy any of these clauses
+                        # they must become hard
+                        for relv in self.rels:
+                            self.oracle.add_clause([relv])
         else:
             # unit cores are treated differently
             # (their negation is added to the hard part)
@@ -1243,7 +1253,7 @@ class RC2Stratified(RC2, object):
     """
 
     def __init__(self, formula, solver='g3', adapt=False, blo='div',
-            exhaust=False, incr=False, minz=False, nohard=False, trim=0,
+            exhaust=False, exhaust_bottom_up=False, incr=False, minz=False, nohard=False, trim=0,
             verbose=0):
         """
             Constructor.
@@ -1251,7 +1261,7 @@ class RC2Stratified(RC2, object):
 
         # calling the constructor for the basic version
         super(RC2Stratified, self).__init__(formula, solver=solver,
-                adapt=adapt, exhaust=exhaust, incr=incr, minz=minz, trim=trim,
+                adapt=adapt, exhaust=exhaust, exhaust_bottom_up=exhaust_bottom_up, incr=incr, minz=minz, trim=trim,
                 verbose=verbose)
 
         self.levl = 0    # initial optimization level
@@ -1628,7 +1638,7 @@ def parse_options():
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'ab:c:e:hil:ms:t:vx',
-                ['adapt', 'block=', 'comp=', 'enum=', 'exhaust', 'help',
+                ['adapt', 'block=', 'comp=', 'enum=', 'exhaust', 'exhaust-bottom-up', 'help',
                     'incr', 'blo=', 'minimize', 'solver=', 'trim=', 'verbose',
                     'vnew'])
     except getopt.GetoptError as err:
@@ -1639,6 +1649,7 @@ def parse_options():
     adapt = False
     block = 'model'
     exhaust = False
+    exhaust_bottom_up = False
     cmode = None
     to_enum = 1
     incr = False
@@ -1681,6 +1692,8 @@ def parse_options():
             vnew = True
         elif opt in ('-x', '--exhaust'):
             exhaust = True
+        elif opt in ('--exhaust-bottom-up'):
+            exhaust_bottom_up = True
         else:
             assert False, 'Unhandled option: {0} {1}'.format(opt, arg)
 
@@ -1689,7 +1702,7 @@ def parse_options():
     assert block in bmap, 'Unknown solution blocking'
     block = bmap[block]
 
-    return adapt, blo, block, cmode, to_enum, exhaust, incr, minz, \
+    return adapt, blo, block, cmode, to_enum, exhaust, exhaust_bottom_up, incr, minz, \
             solver, trim, verbose, vnew, args
 
 
@@ -1721,12 +1734,13 @@ def usage():
     print('        -v, --verbose            Be verbose')
     print('        --vnew                   Print v-line in the new format')
     print('        -x, --exhaust            Exhaust new unsatisfiable cores')
+    print('        --exhaust-bottom-up      Exhaust new unsatisfiable cores from the bottom up')
 
 
 #
 #==============================================================================
 if __name__ == '__main__':
-    adapt, blo, block, cmode, to_enum, exhaust, incr, minz, solver, trim, \
+    adapt, blo, block, cmode, to_enum, exhaust, exhaust_bottom_up, incr, minz, solver, trim, \
             verbose, vnew, files = parse_options()
 
     if files:

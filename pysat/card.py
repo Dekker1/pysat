@@ -647,6 +647,18 @@ class ITotalizer(object):
         # keeping the number of newly added clauses
         self.nof_new = len(clauses)
 
+    def nodes_bottom_up(self):
+        nodes = pycard.itot_nodes(self.tobj, int(MainThread.check()))
+        tots = []
+        for i in range(len(nodes)):
+            tot = ITotalizer()
+            tot.ubound = self.ubound
+            tot.tobj = nodes[i][0]
+            tot.rhs = nodes[i][1]
+            tot._merged = True
+            tots.append(tot)
+        return tots
+
     def extend(self, lits=[], ubound=None, top_id=None):
         """
             Extends the list of literals in the sum and (if needed) increases a
